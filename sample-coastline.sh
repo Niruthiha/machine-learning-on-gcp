@@ -7,12 +7,15 @@
 #Write document
 18:00 RO
 
+pip install --user pandas
+pip install --user numpy
+pip install --user scikit-learn
 
 export PROJECT=$(gcloud config list project --format "value(core.project)")
 export JOB_ID="coastline_${USER}_$(date +%Y%m%d_%H%M%S)"
 export BUCKET="gs://${PROJECT}"
 export GCS_PATH="${BUCKET}/${USER}/${JOB_ID}"
-export DICT_FILE=gs://tamucc_coastline/dict.txt
+export DICT_FILE="gs://coastline-/dict.txt"
 export MODEL_NAME=coastline
 export VERSION_NAME=v1
 
@@ -40,18 +43,29 @@ gsutil cp -r gs://tamucc_coastline/dict_explanation.csv ${BUCKET}
 gsutil cp -r gs://tamucc_coastline/labeled_images.csv ${BUCKET}
 gsutil cp -r gs://tamucc_coastline/labels.csv ${BUCKET}
 
-#RUN PYTHON SCRIPT FOR SPLITTING INTO TRAINING AND TEST SET
-chmod +x coastline-dataset-train-test-split.py
+#Script used for splitting the coastline dataset into training and evaluation set
+gsutil cp gs://coastline-238313/*.csv ./
+gsutil cp *.py gs://coastline-238313
 
+#RUN PYTHON SCRIPT FOR SPLITTING INTO TRAINING AND TEST SET
+python coastline-dataset-train-test-split.py
+gsutil cp labels_train_set.csv gs://coastline-238313
+gsutil cp labels_test_set.csv gs://coastline-238313
+
+
+
+cd cloud-samples/flowers
 # Typically,
 # the total worker time is higher when running on Cloud instead of your local
 # machine due to increased network traffic and the use of more cost efficient
 # CPU's.  Check progress here: https://console.cloud.google.com/dataflow
 time python trainer/preprocess.py \
   --input_dict "$DICT_FILE" \
-  --input_path "gs://"${BUCKET}"/labels_test_set.csv" \
+  --input_path "${BUCKET}/labels_test_set.csv" \
   --output_path "${GCS_PATH}/preproc/coastline_test" \
+  --numWorkers 20 \
   --cloud
+
 
 echo "join fsociety"
 
@@ -59,13 +73,14 @@ time python trainer/preprocess.py \
   --input_dict "$DICT_FILE" \
   --input_path "gs://"${BUCKET}"/labels_train_set.csv" \
   --output_path "${GCS_PATH}/preproc/coastline_train" \
+  --numWorkers 20 \
   --cloud
 
 echo "hello friend"
 
 # Training on CloudML is quick after preprocessing.  If you ran the above
 # commands asynchronously, make sure they have completed before calling this one.
-gcloud ml-engine jobs submit training "$JOB_ID" \
+gcloud ml-engine jobs submit training "coastline_with_gpu_train" \
   --stream-logs \
   --scale-tier basic-gpu \
   --module-name trainer.task \
@@ -75,12 +90,12 @@ gcloud ml-engine jobs submit training "$JOB_ID" \
   --runtime-version=1.13 \
   -- \
   --output_path "${GCS_PATH}/training/with-gpu" \
-  --eval_data_paths "${GCS_PATH}/preproc/test*" \
-  --train_data_paths "${GCS_PATH}/preproc/train*"
+  --eval_data_paths "${GCS_PATH}/preproc/coastline_test" \
+  --train_data_paths "${GCS_PATH}/preproc/coastline_train*"
 
 export JOB_ID="coastline_gpu_${USER}_$(date +%Y%m%d_%H%M%S)"
 
-gcloud ml-engine jobs submit training "$JOB_ID" \
+gcloud ml-engine jobs submit training "coastline_without_gpu" \
   --stream-logs \
   --scale-tier basic \
   --module-name trainer.task \
@@ -93,14 +108,9 @@ gcloud ml-engine jobs submit training "$JOB_ID" \
   --eval_data_paths "${GCS_PATH}/preproc/test*" \
   --train_data_paths "${GCS_PATH}/preproc/train*"
 
-echo "fsociety00.dat"
 
-#In order to use the training result we need to set up the model in the Cloud ML
-#Engine. First, we delete any possible existing models, to avoid name and version
-#clashes:
-#gcloud ml-engine versions delete $VERSION_NAME --model=$MODEL_NAME -q --
-#verbosity none
-#gcloud ml-engine models delete $MODEL_NAME -q --verbosity none
+gcloud ml-engine versions delete $VERSION_NAME --model=$MODEL_NAME -q --verbosity none
+gcloud ml-engine models delete $MODEL_NAME -q --verbosity none
 
 # Tell CloudML about a new type of model coming.  Think of a "model" here as
 # a namespace for deployed Tensorflow graphs.
@@ -116,8 +126,8 @@ gcloud ml-engine versions create "$VERSION_NAME" \
   --runtime-version=1.13
 
 #Add TensorBoard line for coastline
-tensorboard --port 8080 --logdir ${GCS_PATH}/training/with-gpu
-tensorboard --port 8081 --logdir ${GCS_PATH}/training/without-gpu
+tensorboard --port 8081 --logdir ${GCS_PATH}/training/with-gpu
+tensorboard --port 8082 --logdir ${GCS_PATH}/training/without-gpu
 
 
 # Models do not need a default version, but its a great way move your production
@@ -126,7 +136,7 @@ gcloud ml-engine versions set-default "$VERSION_NAME" --model "$MODEL_NAME"
 
 # Finally, download a coastline image so we can test online prediction.
 gsutil cp \
-  gs://cloud-samples-data/ml-engine/flowers/daisy/100080576_f52e8ee070_n.jpg \
+  gs://tamucc_coastline/esi_images/IMG_2007_SecDE_Spr12.jpg \
   coastline.jpg #to be replaced with coastline path
 
 # Since the image is passed via JSON, we have to encode the JPEG string first. <--replace daisy with coastline

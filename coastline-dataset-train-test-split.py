@@ -17,5 +17,7 @@ labels_train_set = pd.concat([X_train,y_train],axis=1,ignore_index=True)
 labels_train_set.columns=['gsurl','class']
 labels_test_set = pd.concat([X_test,y_test],axis=1,ignore_index=True)
 labels_test_set.columns=['gsurl','class']
+sample_test_set = labels_test_set.iloc[100,:]
+sample_test_set.to_csv('sample_test_set.csv',index=False)
 labels_train_set.to_csv('labels_train_set.csv',index=False)
 labels_test_set.to_csv('labels_test_set.csv',index=False)
