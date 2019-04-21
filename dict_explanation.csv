@@ -1,0 +1,19 @@
+class,name
+1,"Exposed walls and other structures made of concrete, wood, or metal"
+2A ,Scarps and steep slopes in clay
+2B ,Wave-cut clay platforms
+3A ,Fine-grained sand beaches
+3B ,Scarps and steep slopes in sand
+4,Coarse-grained sand beaches
+5,Mixed sand and gravel (shell) beaches
+6A ,Gravel (shell) beaches
+6B ,Exposed riprap structures
+7,Exposed tidal flats
+8A ,"Sheltered solid man-made structures, such as bulkheads and docks"
+8B ,Sheltered riprap structures
+8C ,Sheltered scarps
+9,Sheltered tidal flats
+10A ,Salt- and brackish-water marshes
+10B ,Fresh-water marshes (herbaceous vegetation)
+10C ,Fresh-water swamps (woody vegetation)
+1OD,Mangroves

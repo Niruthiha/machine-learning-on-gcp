@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Copyright 2016 Google Inc. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,19 +31,22 @@ echo
 echo "Using job id: " $JOB_ID
 set -v -e
 
+pip install apache_beam[gcp]
+pip install pillow
+
 # Takes about 30 mins to preprocess everything.  We serialize the two
 # preprocess.py synchronous calls just for shell scripting ease; you could use
 # --runner DataflowRunner to run them asynchronously.  Typically,
 # the total worker time is higher when running on Cloud instead of your local
 # machine due to increased network traffic and the use of more cost efficient
 # CPU's.  Check progress here: https://console.cloud.google.com/dataflow
-python trainer/preprocess.py \
+time python trainer/preprocess.py \
   --input_dict "$DICT_FILE" \
   --input_path "gs://cloud-samples-data/ml-engine/flowers/eval_set.csv" \
   --output_path "${GCS_PATH}/preproc/eval" \
   --cloud
 
-python trainer/preprocess.py \
+time python trainer/preprocess.py \
   --input_dict "$DICT_FILE" \
   --input_path "gs://cloud-samples-data/ml-engine/flowers/train_set.csv" \
   --output_path "${GCS_PATH}/preproc/train" \
@@ -51,18 +54,23 @@ python trainer/preprocess.py \
 
 # Training on CloudML is quick after preprocessing.  If you ran the above
 # commands asynchronously, make sure they have completed before calling this one.
-gcloud ml-engine jobs submit training "$JOB_ID" \
+
+#Add time to this command;
+time gcloud ml-engine jobs submit training "$JOB_ID" \
   --stream-logs \
   --module-name trainer.task \
+  --scale-tier basic-gpu \
   --package-path trainer \
   --staging-bucket "$BUCKET" \
   --region us-central1 \
   --runtime-version=1.13 \
   -- \
-  --output_path "${GCS_PATH}/training" \
+  --output_path "${GCS_PATH}/training/with-gpu" \
   --eval_data_paths "${GCS_PATH}/preproc/eval*" \
   --train_data_paths "${GCS_PATH}/preproc/train*"
+  #scale-tier sets the GPU settings, this project used both custom and basic-gpu options for changing configurations
 
+gsutil mb gs://big-data-project-238216-ml-gpu-ml
 # Tell CloudML about a new type of model coming.  Think of a "model" here as
 # a namespace for deployed Tensorflow graphs.
 gcloud ml-engine models create "$MODEL_NAME" \
@@ -88,13 +96,15 @@ gsutil cp \
 # Since the image is passed via JSON, we have to encode the JPEG string first.
 python -c 'import base64, sys, json; img = base64.b64encode(open(sys.argv[1], "rb").read()); print json.dumps({"key":"0", "image_bytes": {"b64": img}})' daisy.jpg &> request.json
 
-# Here we are showing off CloudML online prediction which is still in beta.
-# If the first call returns an error please give it another try; likely the
-# first worker is still spinning up.  After deploying our model we give the
-# service a moment to catch up--only needed when you deploy a new version.
-# We wait for 10 minutes here, but often see the service start up sooner.
-sleep 10m
-gcloud ml-engine predict --model ${MODEL_NAME} --json-instances request.json
+#While this line was not included in the practical instructions, it is needed to convert the downloaded daisy image to JSON format, further used for prediction.
+python images_to_json.py
+
+time gcloud ml-engine predict --model ${MODEL_NAME} --json-instances request.json
+
+#This line below starts Tensorboard, used for monitoring purposes
+tensorboard --port 8080 --logdir ${GCS_PATH}/training/with-gpu
+tensorboard --port 8081 --logdir ${GCS_PATH}/training/without-gpu
+
 
 # Remove the model and its version
 # Make sure no error is reported if model does not exist
